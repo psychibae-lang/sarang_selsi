@@ -215,9 +215,19 @@
   .age-group-btn.active { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
   .age-group-btn.done { background: var(--green-light); border-color: #86efac; color: var(--green); }
 
-  .items-list { display: flex; flex-direction: column; gap: 7px; max-height: 440px; overflow-y: auto; padding-right: 4px; }
-  .items-list::-webkit-scrollbar { width: 4px; }
-  .items-list::-webkit-scrollbar-thumb { background: var(--slate-200); border-radius: 99px; }
+  .items-list { display: flex; flex-direction: column; gap: 7px; padding-right: 4px; }
+
+  /* 수용/표현 구분 배너 */
+  .section-banner {
+    display: flex; align-items: center; gap: 12px;
+    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    color: white; border-radius: 14px; padding: 16px 20px;
+    margin: 8px 0 4px; font-weight: 800; font-size: 16px;
+    box-shadow: 0 3px 12px rgba(37,99,235,0.25);
+  }
+  .section-banner .banner-icon { font-size: 26px; }
+  .section-banner .banner-sub { font-size: 12px; font-weight: 400; opacity: 0.85; margin-top: 2px; }
+  .section-banner.expressive { background: linear-gradient(135deg, #065f46, #059669); box-shadow: 0 3px 12px rgba(5,150,105,0.25); }
 
   .item-row {
     display: flex; align-items: flex-start; gap: 12px;
@@ -491,6 +501,7 @@
   <div id="page-2" class="card" style="display:none">
     <div class="card-title">📝 검사 실시</div>
 
+    <!-- 진행률 -->
     <div class="progress-bar-wrap">
       <div class="progress-meta">
         <span id="progText">0 / 112 문항 완료</span>
@@ -499,21 +510,17 @@
       <div class="progress-bar"><div class="progress-fill" id="progFill" style="width:0%"></div></div>
     </div>
 
-    <div class="lang-tabs">
-      <button class="lang-tab active" id="tab-r" onclick="switchTab('receptive')">🎧 수용언어 (R)</button>
-      <button class="lang-tab" id="tab-e" onclick="switchTab('expressive')">🗣️ 표현언어 (E)</button>
-    </div>
+    <!-- 전체 문항 스크롤 목록 -->
+    <div id="allItemsList" style="display:flex;flex-direction:column;gap:8px;"></div>
 
-    <div class="age-group-scroll" id="ageGroupScroll"></div>
-
-    <div class="items-list" id="itemsList"></div>
-
-    <div class="btn-row" style="margin-top:20px">
-      <button class="btn-secondary" onclick="goStep(1)">← 이전</button>
-      <button class="btn-primary" id="btn-to-result" onclick="goResult()" disabled>결과 보기 →</button>
-    <div id="incomplete-msg" style="display:none;margin-top:10px;text-align:center;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 14px;font-size:13px;color:#c2410c;font-weight:600;">
-      ⚠️ 아직 <span id="remaining-count"></span>개 문항이 남아있습니다. 모든 문항을 체크한 후 결과를 확인할 수 있습니다.
-    </div>
+    <div style="margin-top:20px;">
+      <button class="btn-secondary" onclick="goStep(1)" style="margin-bottom:10px;">← 이전</button>
+      <button class="btn-primary" id="btn-to-result" onclick="goResult()" disabled style="width:100%;">결과 보기 →</button>
+      <div id="incomplete-msg" style="display:none;margin-top:10px;text-align:center;
+        background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 14px;
+        font-size:13px;color:#c2410c;font-weight:600;">
+        ⚠️ 아직 <span id="remaining-count"></span>개 문항이 남아있습니다. 모든 문항을 체크한 후 결과를 확인할 수 있습니다.
+      </div>
     </div>
   </div>
 
@@ -712,8 +719,7 @@ function goStep(n) {
 
   if (n === 2) {
     saveInfo();
-    renderAgeGroups();
-    renderItems();
+    renderAllItems();
   }
   if (n === 3) {
     saveInfo();
@@ -785,44 +791,15 @@ function getAge() {
 }
 
 // ── 검사 실시 ──
-function switchTab(tab) {
-  state.activeTab = tab;
-  document.getElementById("tab-r").classList.toggle("active", tab === "receptive");
-  document.getElementById("tab-e").classList.toggle("active", tab === "expressive");
-  renderAgeGroups();
-  renderItems();
-}
+function renderAllItems() {
+  const container = document.getElementById("allItemsList");
 
-function switchGroup(gid) {
-  state.activeGroup = gid;
-  renderAgeGroups();
-  renderItems();
-}
-
-function renderAgeGroups() {
-  const container = document.getElementById("ageGroupScroll");
-  container.innerHTML = AGE_GROUPS.map(g => {
-    const items = ITEMS[state.activeTab].filter(i => i.ag === g.id);
-    const done = items.filter(i => state.answers[i.id]).length;
-    const isDone = done === items.length;
-    const isActive = state.activeGroup === g.id;
-    return `<button class="age-group-btn ${isActive?"active":""} ${isDone?"done":""}"
-      onclick="switchGroup('${g.id}')">
-      <span class="ag-label">${g.label}</span>
-      <span class="ag-prog">${done}/${items.length}</span>
-    </button>`;
-  }).join("");
-}
-
-function renderItems() {
-  const items = ITEMS[state.activeTab].filter(i => i.ag === state.activeGroup);
-  const container = document.getElementById("itemsList");
-  container.innerHTML = items.map(item => {
-    const val = state.answers[item.id]; // true=가능, false=불가능, undefined=미답
+  function itemHTML(item) {
+    const val = state.answers[item.id];
     const rowCls = val === true ? "pass" : val === false ? "fail" : "";
     const passCls = val === true ? "active" : "";
     const failCls = val === false ? "active" : "";
-    return `<div class="item-row ${rowCls}">
+    return `<div class="item-row ${rowCls}" id="row-${item.id}">
       <div class="item-content">
         <div class="item-header">
           <span class="item-id">${item.id}</span>
@@ -836,15 +813,82 @@ function renderItems() {
         </div>
       </div>
     </div>`;
-  }).join("");
+  }
 
+  const rScore  = ITEMS.receptive.filter(i => state.answers[i.id] !== undefined).length;
+  const eScore  = ITEMS.expressive.filter(i => state.answers[i.id] !== undefined).length;
+  const rDone   = rScore === ITEMS.receptive.length;
+  const eDone   = eScore === ITEMS.expressive.length;
+
+  let html = "";
+
+  // ── 수용언어 배너 ──
+  html += `<div class="section-banner">
+    <span class="banner-icon">🎧</span>
+    <div>
+      <div>수용언어 검사를 시작합니다</div>
+      <div class="banner-sub">Receptive Language · R01 ~ R56 · 총 ${ITEMS.receptive.length}문항
+        ${rDone ? " &nbsp;✅ 완료" : " &nbsp;(" + rScore + "/" + ITEMS.receptive.length + " 완료)"}</div>
+    </div>
+  </div>`;
+
+  // R01 ~ R56 정렬 출력
+  const rSorted = [...ITEMS.receptive].sort((a,b) => {
+    const n = x => parseInt(x.id.replace(/\D/g,""));
+    return n(a) - n(b);
+  });
+  html += rSorted.map(itemHTML).join("");
+
+  // ── 표현언어 배너 ──
+  html += `<div class="section-banner expressive" style="margin-top:24px;">
+    <span class="banner-icon">🗣️</span>
+    <div>
+      <div>표현언어 검사를 시작합니다</div>
+      <div class="banner-sub">Expressive Language · E01 ~ E56 · 총 ${ITEMS.expressive.length}문항
+        ${eDone ? " &nbsp;✅ 완료" : " &nbsp;(" + eScore + "/" + ITEMS.expressive.length + " 완료)"}</div>
+    </div>
+  </div>`;
+
+  // E01 ~ E56 정렬 출력
+  const eSorted = [...ITEMS.expressive].sort((a,b) => {
+    const n = x => parseInt(x.id.replace(/\D/g,""));
+    return n(a) - n(b);
+  });
+  html += eSorted.map(itemHTML).join("");
+
+  container.innerHTML = html;
   updateProgress();
 }
 
 function setAnswer(id, val) {
   state.answers[id] = val;
-  renderItems();
-  renderAgeGroups();
+  // 해당 문항 행만 부분 업데이트 (전체 리렌더 없이)
+  const item = [...ITEMS.receptive, ...ITEMS.expressive].find(i => i.id === id);
+  if (!item) return;
+  const row = document.getElementById("row-" + id);
+  if (row) {
+    const rowCls = val === true ? "pass" : val === false ? "fail" : "";
+    row.className = "item-row " + rowCls;
+    row.querySelectorAll(".pass-btn").forEach(b => b.classList.toggle("active", val === true));
+    row.querySelectorAll(".fail-btn").forEach(b => b.classList.toggle("active", val === false));
+  }
+  // 배너 카운터 업데이트
+  renderBannerCounts();
+  updateProgress();
+}
+
+function renderBannerCounts() {
+  const rScore = ITEMS.receptive.filter(i => state.answers[i.id] !== undefined).length;
+  const eScore = ITEMS.expressive.filter(i => state.answers[i.id] !== undefined).length;
+  const rDone  = rScore === ITEMS.receptive.length;
+  const eDone  = eScore === ITEMS.expressive.length;
+  const banners = document.querySelectorAll(".section-banner .banner-sub");
+  if (banners[0]) banners[0].innerHTML =
+    `Receptive Language · R01 ~ R56 · 총 ${ITEMS.receptive.length}문항&nbsp;&nbsp;` +
+    (rDone ? "✅ 완료" : `(${rScore}/${ITEMS.receptive.length} 완료)`);
+  if (banners[1]) banners[1].innerHTML =
+    `Expressive Language · E01 ~ E56 · 총 ${ITEMS.expressive.length}문항&nbsp;&nbsp;` +
+    (eDone ? "✅ 완료" : `(${eScore}/${ITEMS.expressive.length} 완료)`);
 }
 
 function updateProgress() {
