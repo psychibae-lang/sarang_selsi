@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SELSI 영·유아 언어발달 검사</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap');
 
@@ -1037,9 +1038,6 @@ function renderResult() {
 
 // ── PDF 출력 ──
 function downloadPDF() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
-
   const sc = calcScores();
   const rProfile = groupProfile("receptive");
   const eProfile = groupProfile("expressive");
@@ -1047,196 +1045,201 @@ function downloadPDF() {
     ? new Date(state.examDate).toLocaleDateString("ko-KR")
     : "-";
 
-  const W = 210, M = 20;
-  let y = 20;
+  const interpLabel = { normal:"정상 발달", mild:"약간 지연 의심", delay:"발달 지연 의심" };
+  const interpColor = { normal:"#16a34a", mild:"#d97706", delay:"#dc2626" };
+  const interpBg    = { normal:"#f0fdf4",  mild:"#fffbeb",  delay:"#fef2f2" };
 
-  // 헤더
-  doc.setFillColor(30, 58, 138);
-  doc.rect(0, 0, W, 32, "F");
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(20); doc.setFont("helvetica","bold");
-  doc.text("SELSI", M, 13);
-  doc.setFontSize(12); doc.setFont("helvetica","normal");
-  doc.text("Sequenced Language Scale for Infants", M, 20);
-  doc.setFontSize(9);
-  doc.text("Young-Tae Kim & Kyung-Hee Kim (2004) | Assessment Report", M, 27);
-  y = 42;
+  // ── 결과지 HTML 생성 ──
+  function profileRows(profile) {
+    return profile.map(p => {
+      const c = p.pct >= 80 ? "#16a34a" : p.pct >= 50 ? "#d97706" : "#dc2626";
+      return `<tr style="border-bottom:1px solid #e2e8f0;">
+        <td style="padding:7px 10px;">${p.label}</td>
+        <td style="padding:7px 10px;text-align:center;">${p.passed} / ${p.total}</td>
+        <td style="padding:7px 10px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div style="flex:1;height:6px;background:#e2e8f0;border-radius:99px;overflow:hidden;">
+              <div style="width:${p.pct}%;height:100%;background:${c};border-radius:99px;"></div>
+            </div>
+            <span style="font-weight:700;color:${c};min-width:36px;">${p.pct}%</span>
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
 
-  // 기본 정보 박스
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(M, y, W-M*2, 28, 3, 3, "FD");
-  doc.setTextColor(30,41,59);
-  doc.setFontSize(10); doc.setFont("helvetica","bold");
-  doc.text("아동 정보", M+6, y+8);
-  doc.setFont("helvetica","normal"); doc.setFontSize(9);
-  doc.setTextColor(71,85,105);
-  const info = [
-    ["이름", state.childName || "-"],
-    ["성별", state.gender || "-"],
-    ["생활연령", `${sc.age}개월 (${Math.floor(sc.age/12)}세 ${sc.age%12}개월)`],
-    ["검사일", examDateFmt],
-    ["검사자", state.examiner || "-"],
-  ];
-  const colW = (W - M*2 - 12) / 3;
-  info.forEach((item, i) => {
-    const col = i % 3, row = Math.floor(i / 3);
-    const x = M + 6 + col * (colW + 2);
-    const iy = y + 16 + row * 8;
-    doc.setFont("helvetica","bold"); doc.setTextColor(100,116,139);
-    doc.text(item[0] + ":", x, iy);
-    doc.setFont("helvetica","normal"); doc.setTextColor(30,41,59);
-    doc.text(item[1], x + 20, iy);
-  });
-  y += 36;
+  const bothOk = sc.r.interp.cls === "normal" && sc.e.interp.cls === "normal";
+  const opinion = bothOk
+    ? "수용언어와 표현언어 두 영역 모두 정상 발달 범위 내에 있습니다."
+    : "일부 영역에서 발달 지연이 의심됩니다. 전문 언어치료사에 의한 정밀 평가를 권장합니다.";
 
-  // 점수 요약
-  doc.setFillColor(30,58,138); doc.setTextColor(255,255,255);
-  doc.rect(M, y, W-M*2, 8, "F");
-  doc.setFontSize(10); doc.setFont("helvetica","bold");
-  doc.text("검사 결과 요약", M+4, y+5.5);
-  y += 12;
+  function scoreBox(label, d) {
+    const c = interpColor[d.interp.cls];
+    const bg = interpBg[d.interp.cls];
+    return `
+    <div style="flex:1;border-radius:12px;border:1.5px solid ${c}40;background:${bg};padding:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <span style="font-weight:800;font-size:14px;">${label}</span>
+        <span style="background:${c};color:white;border-radius:6px;padding:2px 10px;font-size:11px;font-weight:700;">${interpLabel[d.interp.cls]}</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:10px;">
+        <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:8px;padding:8px 4px;">
+          <div style="font-size:22px;font-weight:900;line-height:1;">${d.score}<span style="font-size:12px;color:#94a3b8;">/${d.total}</span></div>
+          <div style="font-size:10px;color:#64748b;margin-top:3px;">원점수</div>
+        </div>
+        <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:8px;padding:8px 4px;">
+          <div style="font-size:22px;font-weight:900;line-height:1;">${d.pct}<span style="font-size:12px;color:#94a3b8;">%</span></div>
+          <div style="font-size:10px;color:#64748b;margin-top:3px;">정반응률</div>
+        </div>
+        <div style="flex:1;text-align:center;background:rgba(255,255,255,0.7);border-radius:8px;padding:8px 4px;">
+          <div style="font-size:22px;font-weight:900;line-height:1;color:${c};">${d.equiv}<span style="font-size:12px;color:#94a3b8;">개월</span></div>
+          <div style="font-size:10px;color:#64748b;margin-top:3px;">등가월령</div>
+        </div>
+      </div>
+      <div style="height:7px;background:rgba(0,0,0,0.08);border-radius:99px;overflow:hidden;">
+        <div style="width:${d.pct}%;height:100%;background:${c};border-radius:99px;"></div>
+      </div>
+    </div>`;
+  }
 
-  const colors = { normal:[22,163,74], mild:[217,119,6], delay:[220,38,38] };
-  function drawScoreBox(label, d, bx, by, bw) {
-    const [r,g,b] = colors[d.interp.cls];
-    doc.setFillColor(r,g,b);
-    doc.rect(bx, by, bw, 6, "F");
-    doc.setTextColor(255,255,255); doc.setFontSize(8); doc.setFont("helvetica","bold");
-    doc.text(label, bx+3, by+4.2);
-    doc.text(d.interp.label, bx+bw-3, by+4.2, {align:"right"});
-    by += 9;
-    doc.setFillColor(248,250,252); doc.setDrawColor(226,232,240);
-    doc.roundedRect(bx, by, bw, 22, 2, 2, "FD");
+  const printHTML = `
+  <div style="font-family:'Noto Sans KR',sans-serif;width:754px;padding:20px;color:#1e293b;">
 
-    const nums = [
-      ["원점수", `${d.score} / ${d.total}`],
-      ["정반응률", `${d.pct}%`],
-      ["등가월령", `${d.equiv}개월`],
-      ["생활연령", `${d.interp.cls==="normal"?"정상":d.interp.cls==="mild"?"약간지연":"발달지연"}`],
-    ];
-    const nW = bw / 4;
-    nums.forEach(([key,val],i) => {
-      const nx = bx + i * nW + nW/2;
-      doc.setFontSize(14); doc.setFont("helvetica","bold");
-      doc.setTextColor(r,g,b);
-      if (i < 3) doc.text(val, nx, by+12, {align:"center"});
-      else {
-        doc.setFontSize(9);
-        doc.setTextColor(r,g,b);
-        doc.text(val, nx, by+12, {align:"center"});
+    <!-- 헤더 -->
+    <div style="background:linear-gradient(135deg,#1e3a8a,#2563eb);color:white;border-radius:14px;padding:20px 24px;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <div style="background:rgba(255,255,255,0.15);border:1.5px solid rgba(255,255,255,0.3);border-radius:8px;padding:6px 14px;font-weight:900;font-size:20px;letter-spacing:3px;">SELSI</div>
+        <div>
+          <div style="font-size:18px;font-weight:800;">영·유아 언어발달 검사 결과지</div>
+          <div style="font-size:12px;opacity:0.8;margin-top:2px;">Sequenced Language Scale for Infants</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 아동 정보 -->
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-weight:800;font-size:14px;margin-bottom:10px;color:#1e293b;">👶 아동 정보</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        ${[["이름", state.childName||"-"], ["성별", state.gender||"-"],
+           ["생활연령", sc.age+"개월 ("+Math.floor(sc.age/12)+"세 "+sc.age%12+"개월)"],
+           ["검사일", examDateFmt], ["검사자", state.examiner||"-"]
+          ].map(([k,v]) => `<div style="background:white;border-radius:8px;padding:8px 10px;">
+            <div style="font-size:10px;color:#94a3b8;font-weight:600;margin-bottom:2px;">${k}</div>
+            <div style="font-weight:700;font-size:13px;">${v}</div>
+          </div>`).join("")}
+      </div>
+    </div>
+
+    <!-- 점수 요약 -->
+    <div style="font-weight:800;font-size:14px;margin-bottom:10px;">📊 검사 결과 요약</div>
+    <div style="display:flex;gap:12px;margin-bottom:16px;">
+      ${scoreBox("🎧 수용언어 (Receptive)", sc.r)}
+      ${scoreBox("🗣️ 표현언어 (Expressive)", sc.e)}
+    </div>
+
+    <!-- 수용언어 프로파일 -->
+    <div style="font-weight:800;font-size:14px;margin-bottom:8px;">🎧 수용언어 월령별 프로파일</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px;background:white;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;">
+      <thead><tr style="background:#f1f5f9;">
+        <th style="padding:8px 10px;text-align:left;font-weight:700;color:#475569;">월령 구간</th>
+        <th style="padding:8px 10px;text-align:center;font-weight:700;color:#475569;">통과 문항</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:700;color:#475569;">정반응률</th>
+      </tr></thead>
+      <tbody>${profileRows(rProfile)}</tbody>
+    </table>
+
+    <!-- 표현언어 프로파일 -->
+    <div style="font-weight:800;font-size:14px;margin-bottom:8px;">🗣️ 표현언어 월령별 프로파일</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px;background:white;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;">
+      <thead><tr style="background:#f1f5f9;">
+        <th style="padding:8px 10px;text-align:left;font-weight:700;color:#475569;">월령 구간</th>
+        <th style="padding:8px 10px;text-align:center;font-weight:700;color:#475569;">통과 문항</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:700;color:#475569;">정반응률</th>
+      </tr></thead>
+      <tbody>${profileRows(eProfile)}</tbody>
+    </table>
+
+    <!-- 종합 소견 -->
+    <div style="background:#f8fafc;border-left:4px solid #2563eb;border-radius:0 12px 12px 0;padding:16px 18px;margin-bottom:16px;">
+      <div style="font-weight:800;font-size:14px;margin-bottom:10px;">📋 종합 소견</div>
+      <div style="font-size:13px;line-height:1.9;color:#475569;">
+        ${state.childName||"대상아동"}(생활연령 ${sc.age}개월)의 검사 결과,
+        수용언어 등가월령은 <strong style="color:#1e293b;">${sc.r.equiv}개월</strong>
+        (정반응률 ${sc.r.pct}%, ${interpLabel[sc.r.interp.cls]}),
+        표현언어 등가월령은 <strong style="color:#1e293b;">${sc.e.equiv}개월</strong>
+        (정반응률 ${sc.e.pct}%, ${interpLabel[sc.e.interp.cls]})으로 측정되었습니다.<br>
+        ${opinion}
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:10px;padding-top:10px;border-top:1px solid #e2e8f0;">
+        ※ 본 결과는 선별검사 참고용이며, 공식적인 임상 진단 자료로 사용할 수 없습니다.
+      </div>
+    </div>
+
+    <!-- 서명란 -->
+    <div style="display:flex;justify-content:space-between;padding:10px 4px;border-top:1px solid #e2e8f0;margin-top:8px;">
+      <div style="font-size:11px;color:#94a3b8;">검사자 서명: ____________________</div>
+      <div style="font-size:11px;color:#94a3b8;">검사일: ${examDateFmt}</div>
+    </div>
+
+  </div>`;
+
+  // ── html2canvas → jsPDF 변환 ──
+  const printArea = document.getElementById("pdf-print-area");
+  printArea.innerHTML = printHTML;
+  printArea.style.left = "-9999px";
+  printArea.style.display = "block";
+
+  const btn = document.querySelector(".btn-green");
+  const origText = btn.textContent;
+  btn.textContent = "⏳ PDF 생성 중...";
+  btn.disabled = true;
+
+  setTimeout(() => {
+    html2canvas(printArea, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#ffffff",
+      width: 794,
+    }).then(canvas => {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
+      const pageW = 210, pageH = 297;
+      const imgW = pageW;
+      const imgH = canvas.height * (pageW / canvas.width);
+
+      let posY = 0;
+      let remaining = imgH;
+      let page = 0;
+
+      while (remaining > 0) {
+        if (page > 0) pdf.addPage();
+        const sliceH = Math.min(pageH - 10, remaining);
+        const sliceCanvas = document.createElement("canvas");
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = sliceH * (canvas.width / pageW);
+        const ctx = sliceCanvas.getContext("2d");
+        ctx.drawImage(canvas, 0, posY * (canvas.width / pageW),
+          canvas.width, sliceCanvas.height, 0, 0, sliceCanvas.width, sliceCanvas.height);
+        const sliceImg = sliceCanvas.toDataURL("image/png");
+        pdf.addImage(sliceImg, "PNG", 0, 5, imgW, sliceH);
+        posY += sliceH;
+        remaining -= sliceH;
+        page++;
       }
-      doc.setFontSize(7); doc.setFont("helvetica","normal"); doc.setTextColor(100,116,139);
-      doc.text(key, nx, by+18, {align:"center"});
+
+      pdf.save(`SELSI_${state.childName || "결과"}_${state.examDate || "검사"}.pdf`);
+      printArea.style.display = "none";
+      printArea.innerHTML = "";
+      btn.textContent = origText;
+      btn.disabled = false;
+    }).catch(err => {
+      alert("PDF 생성 중 오류가 발생했습니다: " + err.message);
+      printArea.style.display = "none";
+      btn.textContent = origText;
+      btn.disabled = false;
     });
-    return by + 25;
-  }
-
-  const boxW = (W - M*2 - 6) / 2;
-  drawScoreBox("🎧 수용언어 (Receptive Language)", sc.r, M, y, boxW);
-  drawScoreBox("🗣️ 표현언어 (Expressive Language)", sc.e, M + boxW + 6, y, boxW);
-  y += 36;
-
-  // 프로파일 테이블
-  y += 4;
-  doc.setFillColor(30,58,138); doc.setTextColor(255,255,255);
-  doc.rect(M, y, W-M*2, 8, "F");
-  doc.setFontSize(10); doc.setFont("helvetica","bold");
-  doc.text("월령별 수행 프로파일", M+4, y+5.5);
-  y += 12;
-
-  // 테이블 헤더
-  const tW = W-M*2, cols4 = tW/4;
-  doc.setFillColor(241,245,249); doc.setDrawColor(226,232,240);
-  doc.rect(M, y, tW, 7, "FD");
-  doc.setTextColor(71,85,105); doc.setFontSize(8); doc.setFont("helvetica","bold");
-  ["월령 구간","수용언어 통과율","표현언어 통과율","비고"].forEach((h,i) => {
-    doc.text(h, M+cols4*i+4, y+4.8);
-  });
-  y += 8;
-
-  AGE_GROUPS.forEach((g, gi) => {
-    const rp = rProfile[gi], ep = eProfile[gi];
-    doc.setFillColor(gi%2===0?255:248,gi%2===0?255:250,gi%2===0?255:252);
-    doc.rect(M, y, tW, 7, "F");
-    doc.setDrawColor(226,232,240);
-    doc.rect(M, y, tW, 7, "D");
-    doc.setTextColor(30,41,59); doc.setFontSize(8); doc.setFont("helvetica","normal");
-    doc.text(g.label, M+4, y+4.8);
-
-    // 수용언어 바
-    const [rr,rg,rb] = colors[rp.pct>=80?"normal":rp.pct>=50?"mild":"delay"];
-    doc.setFillColor(rr,rg,rb);
-    doc.rect(M+cols4+4, y+2, (cols4-20)*rp.pct/100, 3, "F");
-    doc.setTextColor(rr,rg,rb); doc.setFont("helvetica","bold");
-    doc.text(`${rp.pct}%  (${rp.passed}/${rp.total})`, M+cols4+cols4-2, y+4.8, {align:"right"});
-
-    // 표현언어 바
-    const [er2,eg2,eb2] = colors[ep.pct>=80?"normal":ep.pct>=50?"mild":"delay"];
-    doc.setFillColor(er2,eg2,eb2);
-    doc.rect(M+cols4*2+4, y+2, (cols4-20)*ep.pct/100, 3, "F");
-    doc.setTextColor(er2,eg2,eb2); doc.setFont("helvetica","bold");
-    doc.text(`${ep.pct}%  (${ep.passed}/${ep.total})`, M+cols4*3-2, y+4.8, {align:"right"});
-
-    // 비고
-    const note = (rp.pct < 50 || ep.pct < 50) ? "지연 의심" : (rp.pct < 80 || ep.pct < 80) ? "주의 요망" : "정상";
-    const [nr,ng,nb] = note==="지연 의심"?[220,38,38]:note==="주의 요망"?[217,119,6]:[22,163,74];
-    doc.setTextColor(nr,ng,nb);
-    doc.text(note, M+cols4*3+4, y+4.8);
-    y += 7;
-  });
-
-  // 종합 소견
-  y += 8;
-  if (y > 240) { doc.addPage(); y = 20; }
-  doc.setFillColor(30,58,138); doc.setTextColor(255,255,255);
-  doc.rect(M, y, W-M*2, 8, "F");
-  doc.setFontSize(10); doc.setFont("helvetica","bold");
-  doc.text("종합 소견", M+4, y+5.5);
-  y += 12;
-
-  doc.setFillColor(248,250,252); doc.setDrawColor(226,232,240);
-  doc.roundedRect(M, y, W-M*2, 44, 3, 3, "FD");
-  doc.setFillColor(30,58,138); doc.rect(M, y, 3, 44, "F");
-
-  doc.setTextColor(30,41,59); doc.setFontSize(9); doc.setFont("helvetica","normal");
-  const opinLines = [
-    `검사 대상: ${state.childName || "-"} (생활연령 ${sc.age}개월, ${state.gender || "-"})`,
-    `수용언어 등가월령: ${sc.r.equiv}개월 (원점수 ${sc.r.score}/${sc.r.total}, 정반응률 ${sc.r.pct}%) → ${sc.r.interp.label}`,
-    `표현언어 등가월령: ${sc.e.equiv}개월 (원점수 ${sc.e.score}/${sc.e.total}, 정반응률 ${sc.e.pct}%) → ${sc.e.interp.label}`,
-    "",
-    sc.r.interp.cls === "normal" && sc.e.interp.cls === "normal"
-      ? "두 영역 모두 정상 발달 범위 내에 있습니다."
-      : "일부 영역에서 발달 지연이 의심됩니다. 전문 언어치료사에 의한 정밀 평가를 권장합니다.",
-    "",
-    "※ 본 결과는 선별검사 참고용이며, 공식적인 임상 진단 자료로 사용할 수 없습니다.",
-  ];
-  opinLines.forEach((line,i) => {
-    doc.text(line, M+6, y+8+i*5.5);
-  });
-
-  // 서명란
-  y += 56;
-  if (y > 255) { doc.addPage(); y = 20; }
-  doc.setDrawColor(226,232,240);
-  doc.line(M, y, M+50, y);
-  doc.line(W-M-50, y, W-M, y);
-  doc.setTextColor(100,116,139); doc.setFontSize(8);
-  doc.text("검사자 서명", M+4, y+5);
-  doc.text("날짜: " + examDateFmt, W-M-48, y+5);
-
-  // 푸터
-  const pageCount = doc.internal.getNumberOfPages();
-  for (let i=1; i<=pageCount; i++) {
-    doc.setPage(i);
-    doc.setFillColor(248,250,252);
-    doc.rect(0, 287, W, 10, "F");
-    doc.setTextColor(148,163,184); doc.setFontSize(7); doc.setFont("helvetica","normal");
-    doc.text("SELSI Assessment Report | 영·유아 언어발달 검사 결과지", M, 292);
-    doc.text(`Page ${i} / ${pageCount}`, W-M, 292, {align:"right"});
-  }
-
-  doc.save(`SELSI_${state.childName || "결과"}_${state.examDate || "검사"}.pdf`);
+  }, 200);
 }
 
 // ── 리셋 ──
@@ -1259,5 +1262,15 @@ function resetAll() {
   showIntro();
 }
 </script>
+
+<!-- ════ PDF 출력용 숨김 영역 ════ -->
+<div id="pdf-print-area" style="
+  position:fixed; left:-9999px; top:0;
+  width:794px; background:white;
+  font-family:'Noto Sans KR',sans-serif;
+  font-size:13px; color:#1e293b;
+  padding:0; margin:0;
+"><!-- 동적으로 채워짐 --></div>
+
 </body>
 </html>
